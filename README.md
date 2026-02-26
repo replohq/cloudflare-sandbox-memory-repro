@@ -56,29 +56,7 @@ cp .dev.vars.template .dev.vars
 pnpm install && pnpm repro
 ```
 
-## Manual Repro
-
-Terminal 1:
-
-```bash
-pnpm dev
-```
-
-Terminal 2:
-
-```bash
-curl http://localhost:8787/do/init
-curl http://localhost:8787/do/write
-curl http://localhost:8787/do/minio-check
-```
-
-## Log Location
-
-Wrangler logs:
-
-- `/Users/kevinoconnell/Library/Preferences/.wrangler/logs/`
-
-Search terms:
+Key logs found in Wrangler dev:
 
 - `Error checking if container is ready: connect(): Connection refused`
 - `Error checking 3000: connect(): Connection refused`
