@@ -13,7 +13,7 @@
  * Usage: npx tsx repro.mts
  */
 
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 
 const BASE_URL = "http://localhost:8787";
@@ -71,6 +71,25 @@ function resetDockerState() {
   }
 
   execSync("docker builder prune -a -f", { stdio: "inherit" });
+}
+
+function killProcessTree(child: ChildProcess) {
+  if (!child.pid) return;
+
+  try {
+    if (process.platform === "win32") {
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: "ignore" });
+      return;
+    }
+
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // Child is already gone.
+    }
+  }
 }
 
 async function waitForServer(maxAttempts = 30): Promise<boolean> {
@@ -147,18 +166,23 @@ async function main() {
   const wrangler = spawn("pnpm", ["dev"], {
     stdio: ["ignore", "inherit", "inherit"],
     shell: true,
+    detached: true,
   });
 
   // Handle cleanup on exit
-  const cleanup = () => {
+  let isCleaningUp = false;
+  const cleanup = (exitCode = 0) => {
+    if (isCleaningUp) return;
+    isCleaningUp = true;
+
     log("");
-    log("Stopping wrangler...");
-    wrangler.kill();
-    process.exit(0);
+    log("Stopping wrangler and subprocesses...");
+    killProcessTree(wrangler);
+    process.exit(exitCode);
   };
 
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
+  process.on("SIGINT", () => cleanup(0));
+  process.on("SIGTERM", () => cleanup(0));
 
   // Wait for server
   await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -166,8 +190,8 @@ async function main() {
 
   if (!serverReady) {
     log("ERROR: Server failed to start after 30 seconds");
-    wrangler.kill();
-    process.exit(1);
+    cleanup(1);
+    return;
   }
 
   logHeader("Durable Object mode (production pattern)");
