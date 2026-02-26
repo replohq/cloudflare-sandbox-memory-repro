@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sandbox-repro",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-03",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  // Container configuration for Sandbox SDK
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 5
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "WORKSPACE_REPO",
+      "bucket_name": "agent-repos",
+      "preview_bucket_name": "agent-repos-dev"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "Sandbox",
+        "name": "Sandbox"
+      },
+      {
+        "class_name": "ReproAgent",
+        "name": "ReproAgent"
+      }
+    ]
+  },
+  // Migrations for the Durable Objects
+  "migrations": [
+    {
+      "new_sqlite_classes": ["Sandbox", "ReproAgent"],
+      "tag": "v2"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "CLOUDFLARE_R2_ENDPOINT": "http://host.docker.internal:9000"
+  },
+  "dev": {
+    "port": 8787
+  }
+}
