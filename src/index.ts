@@ -27,12 +27,12 @@ export default {
         JSON.stringify({
           name: "sandbox-repro",
           description:
-            "Repro of Sandbox writeFile startup failures via Durable Object flow",
+            "Repro of Sandbox writeFile startup failures via Durable Object flow (fresh sandbox per request)",
           endpoints: {
-            "/do/init": "GET - Initialize sandbox (from Durable Object)",
-            "/do/write": "GET - Write file (from Durable Object)",
-            "/do/exec": "GET - Execute command (from Durable Object)",
-            "/do/minio-check": "GET - Check MinIO access from sandbox via rclone",
+            "/do/init": "GET - Create and destroy a fresh sandbox (from Durable Object)",
+            "/do/write": "GET - Write file in a fresh sandbox (from Durable Object)",
+            "/do/exec": "GET - Execute command in a fresh sandbox (from Durable Object)",
+            "/do/minio-check": "GET - Check MinIO access from a fresh sandbox via rclone",
           },
         }),
         { headers: { "Content-Type": "application/json" } },
@@ -71,7 +71,7 @@ async function handleDoRequest(env: Env, pathname: string): Promise<Response> {
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Sandbox initialized via Durable Object",
+        message: "Fresh sandbox initialized via Durable Object",
         mode: "durable-object",
         ...result,
       }),

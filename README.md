@@ -9,6 +9,7 @@ Environment:
 - `@cloudflare/sandbox`: `0.7.6`
 - Base image: `docker.io/cloudflare/sandbox:0.7.6`
 - Runtime path: Worker -> `ReproAgent` Durable Object -> `getSandbox()` -> `writeFile()`
+- Repro mode: each DO request uses a fresh sandbox ID (no sandbox caching)
 
 Observed behavior:
 

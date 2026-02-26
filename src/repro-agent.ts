@@ -12,52 +12,56 @@ interface Env {
 }
 
 export class ReproAgent extends DurableObject<Env> {
-  private sandbox: ReturnType<typeof getSandbox> | null = null;
-  private sandboxId: string;
-
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    this.sandboxId = `repro-sandbox-${this.ctx.id.toString().slice(0, 8)}`;
+  }
+
+  private createSandboxContext() {
+    const sandboxId = `repro-sandbox-${this.ctx.id.toString().slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
+    const sandbox = getSandbox(this.env.Sandbox, sandboxId);
+
+    return { sandbox, sandboxId };
+  }
+
+  private async withSandbox<T>(
+    action: (ctx: { sandbox: ReturnType<typeof getSandbox>; sandboxId: string }) => Promise<T>,
+  ): Promise<T> {
+    const ctx = this.createSandboxContext();
+
+    try {
+      return await action(ctx);
+    } finally {
+      await ctx.sandbox.destroy();
+    }
   }
 
   async init(): Promise<{ sandboxId: string }> {
-    console.log("[ReproAgent] Getting sandbox...", { sandboxId: this.sandboxId });
-
-    this.sandbox = getSandbox(this.env.Sandbox, this.sandboxId);
-
-    console.log("[ReproAgent] Sandbox obtained successfully", {
-      sandboxId: this.sandboxId,
+    return this.withSandbox(async ({ sandboxId }) => {
+      console.log("[ReproAgent] Getting sandbox...", { sandboxId });
+      console.log("[ReproAgent] Sandbox obtained successfully", { sandboxId });
+      return { sandboxId };
     });
-
-    return { sandboxId: this.sandboxId };
   }
 
   async writeFile(): Promise<{ success: boolean; sandboxId: string }> {
-    if (!this.sandbox) {
-      this.sandbox = getSandbox(this.env.Sandbox, this.sandboxId);
-    }
+    return this.withSandbox(async ({ sandbox, sandboxId }) => {
+      console.log("[ReproAgent] Writing file to sandbox...", { sandboxId });
 
-    console.log("[ReproAgent] Writing file to sandbox...", {
-      sandboxId: this.sandboxId,
+      const configContent = JSON.stringify(
+        {
+          test: true,
+          timestamp: Date.now(),
+          sandboxId,
+        },
+        null,
+        2,
+      );
+
+      await sandbox.writeFile("/test-config.json", configContent);
+      console.log("[ReproAgent] File written successfully", { sandboxId });
+
+      return { success: true, sandboxId };
     });
-
-    const configContent = JSON.stringify(
-      {
-        test: true,
-        timestamp: Date.now(),
-        sandboxId: this.sandboxId,
-      },
-      null,
-      2,
-    );
-
-    await this.sandbox.writeFile("/test-config.json", configContent);
-
-    console.log("[ReproAgent] File written successfully", {
-      sandboxId: this.sandboxId,
-    });
-
-    return { success: true, sandboxId: this.sandboxId };
   }
 
   async exec(
@@ -69,29 +73,24 @@ export class ReproAgent extends DurableObject<Env> {
     stderr: string;
     exitCode: number;
   }> {
-    if (!this.sandbox) {
-      this.sandbox = getSandbox(this.env.Sandbox, this.sandboxId);
-    }
+    return this.withSandbox(async ({ sandbox, sandboxId }) => {
+      console.log("[ReproAgent] Executing command...", { sandboxId, command });
 
-    console.log("[ReproAgent] Executing command...", {
-      sandboxId: this.sandboxId,
-      command,
+      const result = await sandbox.exec(command);
+
+      console.log("[ReproAgent] Command executed", {
+        sandboxId,
+        exitCode: result.exitCode,
+      });
+
+      return {
+        success: result.success,
+        sandboxId,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+      };
     });
-
-    const result = await this.sandbox.exec(command);
-
-    console.log("[ReproAgent] Command executed", {
-      sandboxId: this.sandboxId,
-      exitCode: result.exitCode,
-    });
-
-    return {
-      success: result.success,
-      sandboxId: this.sandboxId,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      exitCode: result.exitCode,
-    };
   }
 
   async minioRcloneCheck(): Promise<{
@@ -103,60 +102,54 @@ export class ReproAgent extends DurableObject<Env> {
     stderr: string;
     exitCode: number;
   }> {
-    if (!this.sandbox) {
-      this.sandbox = getSandbox(this.env.Sandbox, this.sandboxId);
-    }
+    return this.withSandbox(async ({ sandbox, sandboxId }) => {
+      const endpoint =
+        this.env.CLOUDFLARE_R2_ENDPOINT ?? "http://host.docker.internal:9000";
+      const accessKey = this.env.CLOUDFLARE_R2_ACCESS_KEY_ID ?? "minioadmin";
+      const secretKey =
+        this.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ?? "minioadmin";
+      const bucket = "agent-repos";
 
-    const endpoint =
-      this.env.CLOUDFLARE_R2_ENDPOINT ?? "http://host.docker.internal:9000";
-    const accessKey = this.env.CLOUDFLARE_R2_ACCESS_KEY_ID ?? "minioadmin";
-    const secretKey = this.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ?? "minioadmin";
-    const bucket = "agent-repos";
-
-    const result = await this.sandbox.exec(
-      `rclone lsf "r2:${bucket}" --max-depth 1`,
-      {
-        timeout: 20_000,
-        env: {
-          RCLONE_CONFIG_R2_TYPE: "s3",
-          RCLONE_CONFIG_R2_PROVIDER: "Minio",
-          RCLONE_CONFIG_R2_ACCESS_KEY_ID: accessKey,
-          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: secretKey,
-          RCLONE_CONFIG_R2_ENDPOINT: endpoint,
-          RCLONE_CONFIG_R2_FORCE_PATH_STYLE: "true",
+      const result = await sandbox.exec(
+        `rclone lsf "r2:${bucket}" --max-depth 1`,
+        {
+          timeout: 20_000,
+          env: {
+            RCLONE_CONFIG_R2_TYPE: "s3",
+            RCLONE_CONFIG_R2_PROVIDER: "Minio",
+            RCLONE_CONFIG_R2_ACCESS_KEY_ID: accessKey,
+            RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: secretKey,
+            RCLONE_CONFIG_R2_ENDPOINT: endpoint,
+            RCLONE_CONFIG_R2_FORCE_PATH_STYLE: "true",
+          },
         },
-      },
-    );
+      );
 
-    return {
-      success: result.success,
-      sandboxId: this.sandboxId,
-      bucket,
-      endpoint,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      exitCode: result.exitCode,
-    };
+      return {
+        success: result.success,
+        sandboxId,
+        bucket,
+        endpoint,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+      };
+    });
   }
 
   async exists(path: string): Promise<{ exists: boolean; sandboxId: string }> {
-    if (!this.sandbox) {
-      this.sandbox = getSandbox(this.env.Sandbox, this.sandboxId);
-    }
+    return this.withSandbox(async ({ sandbox, sandboxId }) => {
+      console.log("[ReproAgent] Checking file existence...", { sandboxId, path });
 
-    console.log("[ReproAgent] Checking file existence...", {
-      sandboxId: this.sandboxId,
-      path,
+      const result = await sandbox.exists(path);
+
+      console.log("[ReproAgent] File existence check complete", {
+        sandboxId,
+        path,
+        exists: result.exists,
+      });
+
+      return { exists: result.exists, sandboxId };
     });
-
-    const result = await this.sandbox.exists(path);
-
-    console.log("[ReproAgent] File existence check complete", {
-      sandboxId: this.sandboxId,
-      path,
-      exists: result.exists,
-    });
-
-    return { exists: result.exists, sandboxId: this.sandboxId };
   }
 }

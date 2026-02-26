@@ -6,7 +6,7 @@
  * The bug is intermittent, so we spam requests to trigger it.
  *
  * Single mode is tested:
- * Durable Object mode: calls sandbox.* from within ReproAgent (matches production)
+ * Durable Object mode: calls sandbox.* from within ReproAgent using fresh sandbox IDs
  *
  * Requires: Docker running, pnpm installed
  *
@@ -174,7 +174,7 @@ async function main() {
   log("This mode mirrors how ReproAgent calls sandbox.* in production");
 
   log("");
-  log("Step 1: Initialize sandbox via DO (GET /do/init)");
+  log("Step 1: Run fresh sandbox init via DO (GET /do/init)");
   const doInitResult = await makeRequest("/do/init");
   log(doInitResult);
 
@@ -184,15 +184,12 @@ async function main() {
   log(minioResult);
 
   log("");
-  log("Step 3: Spamming writeFile via DO calls");
+  log("Step 3: Spamming writeFile via DO calls (new sandbox per request)");
   log("Watch for: Error checking 3000 / Container crashed while checking for ports");
 
   for (let round = 1; round <= ROUNDS; round++) {
     log(`--- DO Round ${round}/${ROUNDS} ---`);
-    await Promise.all([
-      spamEndpoint({ endpoint: "/do/write", count: SPAM_COUNT }),
-      spamEndpoint({ endpoint: "/do/init", count: Math.floor(SPAM_COUNT / 2) }),
-    ]);
+    await spamEndpoint({ endpoint: "/do/write", count: SPAM_COUNT });
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
